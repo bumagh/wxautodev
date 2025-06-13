@@ -3,6 +3,8 @@ from wxautox.msgs import *
 import time
 import random
 import threading
+import json
+import os
 
            
                            
@@ -15,10 +17,14 @@ class WeChatBot:
         self.game_active = False
         self.selfnickname = ''
         self.current_group = "群游戏欢乐群"
+        self.original_players=[]
         self.players = []
+        self.word_pairs = []
         self.words = {}
         self.votes = {}
-        self.player_scores = {}  # 存储玩家积分 {玩家名: 积分}
+        # self.player_scores = {}  # 存储玩家积分 {玩家名: 积分}
+        self.scores_file = "player_scores.json"  # 积分存储文件
+        self.player_scores = self.load_scores()  # 从文件加载积分
         self.roles = {}  # 存储玩家角色 {玩家名: "平民"或"卧底"}
         self.current_group_chat = {}
         self.current_group_session = {}
@@ -28,12 +34,32 @@ class WeChatBot:
         self.listen_list = [
             '微游游戏官方'
         ]
-        
+        with open('word_pairs.json', 'r', encoding='utf-8') as f:
+            self.word_pairs = json.load(f)['word_pairs']
+        # print(self.word_pairs)
         # 启动游戏监听线程
         # self.game_listener = threading.Thread(target=self.game_message_listener)
         # self.game_listener.daemon = True
         # self.game_listener.start()
+    def load_scores(self):
+        """从文件加载积分数据"""
+        try:
+            if os.path.exists(self.scores_file):
+                with open(self.scores_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            return {}
+        except Exception as e:
+            print(f"加载积分文件失败: {e}")
+            return {}
     
+    def save_scores(self):
+        """保存积分数据到文件"""
+        try:
+            with open(self.scores_file, 'w', encoding='utf-8') as f:
+                json.dump(self.player_scores, f, ensure_ascii=False, indent=2)
+            print("积分数据已保存")
+        except Exception as e:
+            print(f"保存积分文件失败: {e}")
     def game_message_listener(self,msg,chatname):
         """监听游戏相关消息"""
         if self.game_active:
@@ -44,7 +70,7 @@ class WeChatBot:
                             sender, message = msg.sender, msg.content
                             # 只处理玩家的消息
                             if sender in self.players:
-                                if message.lower().startswith("投票"):
+                                if message.lower().startswith("投"):
                                     self.process_vote(sender, message)
                                 elif message == "退出游戏":
                                     self.players.remove(sender)
@@ -152,24 +178,8 @@ class WeChatBot:
             #     return
             
             # 准备游戏词汇
-            word_pairs = [
-                ("气泡", "水泡"),
-                ("图书馆", "图书店"),
-                ("保安", "保镖"),
-                ("奥运会", "冬奥会"),
-                ("沐浴露", "沐浴盐"),
-                ("流星花园", "花样男子"),
-                ("近视眼镜", "隐形眼镜"),
-                ("十面埋伏", "四面楚歌"),
-                ("遮阳帽", "棒球帽"),
-                ("风油精", "清凉油"),
-                ("矿泉水", "纯净水"),
-                ("饼干", "酥饼"),
-                ("领带", "领结"),
-                ("蜡烛", "蜡笔"),
-            ]
-            
-            civilian_word, undercover_word = random.choice(word_pairs)
+       
+            civilian_word, undercover_word = random.choice(self.word_pairs)
            
             # 分配角色
             undercover_index = random.randint(0, len(self.players)-1)
@@ -191,9 +201,11 @@ class WeChatBot:
             # 群内发送游戏开始通知
             time.sleep(1)
             self.wx.SendMsg("🎮 游戏【谁是卧底】开始！",who=self.current_group)
+            self.show_scoreboard(group_name)
+
             self.wx.SendMsg(f"玩家数量：{len(self.players)}人（{len(self.players)-1}平民，1卧底）",who=self.current_group)
             self.wx.SendMsg("每人将收到私聊的词汇，描述时不要直接说出词汇！",who=self.current_group)
-            self.wx.SendMsg("第一轮描述开始，请按顺序发言（每人限时30秒）",who=self.current_group)
+            self.wx.SendMsg("第一轮描述开始，请按顺序发言（每人限时15秒）",who=self.current_group)
             
             # 启动游戏线程
             self.game_thread = threading.Thread(target=self.run_game)
@@ -209,7 +221,7 @@ class WeChatBot:
         """运行游戏主逻辑"""
         group = self.current_group
         round_num = 1
-        
+        self.original_players = self.players[:]  # 保存原始玩家列表
         try:
             while self.game_active and len(self.players) > 2:
                 self.wx.SendMsg(f"\n===== 第{round_num}轮 =====",who=self.current_group)
@@ -219,18 +231,30 @@ class WeChatBot:
                 self.wx.SendMsg(f"当前玩家列表：\n{player_info}",who=self.current_group)
                 # 玩家轮流描述
                 for player in self.players[:]:
-                    self.wx.SendMsg(f"请 {player} 描述你的词汇（10秒）",who=self.current_group)
-                    time.sleep(10)
+                    self.wx.SendMsg(f"请 {player} 描述你的词汇（15秒）",who=self.current_group)
+                    time.sleep(15)
                 
                 # 投票环节
-                self.wx.SendMsg("\n⚠️ 开始投票！请通过数字投票（例如：投 1）中间用空格分隔",who=self.current_group)
+                self.wx.SendMsg(f"当前玩家列表：\n{player_info}",who=self.current_group)
+                self.wx.SendMsg("\n⚠️ 开始投票(投票时间10秒)！请通过数字投票（例如：投 1）中间用空格分隔",who=self.current_group)
+
                 self.votes = {}
-                time.sleep(20)  # 投票时间60秒
+                time.sleep(10)  # 投票时间60秒
                  # 重新生成玩家编号列表（可能有玩家退出）
                 player_list = list(enumerate(self.players, start=1))
                 vote_list = "\n".join([f"{num}. {player}" for num, player in player_list])
                 self.wx.SendMsg(f"投票列表：\n{vote_list}", who=self.current_group)
-                # 显示每个人的投票结果
+               
+                # 统计投票
+                vote_counts = {}
+                for voter, vote_data in self.votes.items():
+                    # vote_data 包含 (投票数字, 玩家名)
+                    voted_player = vote_data[1]
+                    if voted_player in vote_counts:
+                        vote_counts[voted_player] += 1
+                    else:
+                        vote_counts[voted_player] = 1
+                 # 显示每个人的投票结果
                 if self.votes:
                     vote_results = []
                     for voter, vote_data in self.votes.items():
@@ -241,16 +265,6 @@ class WeChatBot:
                     self.wx.SendMsg(result_msg, who=self.current_group)
                 else:
                     self.wx.SendMsg("⚠️ 本轮无人投票", who=self.current_group)
-                # 统计投票
-                vote_counts = {}
-                for voter, vote_data in self.votes.items():
-                    # vote_data 包含 (投票数字, 玩家名)
-                    voted_player = vote_data[1]
-                    if voted_player in vote_counts:
-                        vote_counts[voted_player] += 1
-                    else:
-                        vote_counts[voted_player] = 1
-                
                 # 找出得票最多的玩家
                 if vote_counts:
                     max_votes = max(vote_counts.values())
@@ -288,7 +302,8 @@ class WeChatBot:
                 for player in self.original_players:
                     if self.roles[player] == "卧底":
                         # 卧底获胜 +2分
-                        self.player_scores[player] = self.player_scores.get(player, 0) + 2
+                        # self.player_scores[player] = self.player_scores.get(player, 0) + 2
+                        self.update_score(player, 2)
                         score_changes[player] = "+2"
                     else:
                         # 平民失败不加分
@@ -309,7 +324,8 @@ class WeChatBot:
                 for player in self.original_players:
                     if self.roles[player] == "平民":
                         # 平民获胜 +1分
-                        self.player_scores[player] = self.player_scores.get(player, 0) + 1
+                        # self.player_scores[player] = self.player_scores.get(player, 0) + 1
+                        self.update_score(player, 1)
                         score_changes[player] = "+1"
                     else:
                         # 卧底失败不加分
@@ -321,7 +337,8 @@ class WeChatBot:
                     role = self.roles[player]
                     score_msg += f"{player}（{role}）: {change}分\n"
                 self.wx.SendMsg(score_msg, group)
-            
+            # 保存积分到文件
+            self.save_scores()
             # 显示当前积分榜
             self.show_scoreboard(group)
             
@@ -330,6 +347,11 @@ class WeChatBot:
             print(f"游戏运行出错: {e}")
             self.wx.SendMsg("游戏出现错误，已终止",who=self.current_group)
             self.game_active = False
+     # 在修改积分的地方添加保存
+    def update_score(self, player, points):
+        """更新玩家积分并保存"""
+        self.player_scores[player] = self.player_scores.get(player, 0) + points
+        self.save_scores()
     # 添加显示积分榜的方法
     def show_scoreboard(self, group):   
         """显示当前积分榜"""
