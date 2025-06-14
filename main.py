@@ -5,10 +5,7 @@ import random
 import threading
 import json
 import os
-
-           
-                           
-          
+import traceback          
 class WeChatBot:
     def __init__(self):
         self.wx = WeChat()
@@ -16,7 +13,8 @@ class WeChatBot:
         
         self.game_active = False
         self.selfnickname = ''
-        self.current_group = "群游戏欢乐群"
+        self.TeamMax=4
+        self.current_group = "欢乐谁是卧底群64047"
         self.original_players=[]
         self.players = []
         self.word_pairs = []
@@ -25,14 +23,19 @@ class WeChatBot:
         # self.player_scores = {}  # 存储玩家积分 {玩家名: 积分}
         self.scores_file = "player_scores.json"  # 积分存储文件
         self.player_scores = self.load_scores()  # 从文件加载积分
+         # 准备大厅系统
+        self.lobby_queues = {}  # {群名: [已准备玩家列表]}
+        self.lobby_status = {}  # {群名: 最后活跃时间}
+        self.lobby_timeout = 300  # 5分钟无活动自动清空大厅
         self.roles = {}  # 存储玩家角色 {玩家名: "平民"或"卧底"}
         self.current_group_chat = {}
         self.current_group_session = {}
         self.game_thread = None
+        # self.official = "AAA赣州郭"
         self.official = "微游游戏官方"
         # 设置监听列表
         self.listen_list = [
-            '微游游戏官方'
+            self.official
         ]
         with open('word_pairs.json', 'r', encoding='utf-8') as f:
             self.word_pairs = json.load(f)['word_pairs']
@@ -41,6 +44,28 @@ class WeChatBot:
         # self.game_listener = threading.Thread(target=self.game_message_listener)
         # self.game_listener.daemon = True
         # self.game_listener.start()
+        # 启动大厅管理线程
+        # self.lobby_manager = threading.Thread(target=self.manage_lobbies)
+        # self.lobby_manager.daemon = True
+        # self.lobby_manager.start()
+    def manage_lobbies(self):
+        """管理准备大厅，清理超时大厅"""
+        while True:
+            current_time = time.time()
+            to_remove = []
+            
+            for lobby, last_active in self.lobby_status.items():
+                if current_time - last_active > self.lobby_timeout:
+                    to_remove.append(lobby)
+            
+            for lobby in to_remove:
+                if lobby in self.lobby_queues:
+                    del self.lobby_queues[lobby]
+                if lobby in self.lobby_status:
+                    del self.lobby_status[lobby]
+                print(f"清理超时大厅: {lobby}")
+            
+            time.sleep(60)  # 每分钟检查一次
     def load_scores(self):
         """从文件加载积分数据"""
         try:
@@ -60,9 +85,11 @@ class WeChatBot:
             print("积分数据已保存")
         except Exception as e:
             print(f"保存积分文件失败: {e}")
-    def game_message_listener(self,msg,chatname):
+    def game_message_listener(self,msg,chat):
+        chatname = chat.ChatInfo()['chat_name']
+        print(chatname)
         """监听游戏相关消息"""
-        if self.game_active:
+        if True:
                 try:
                     #获取游戏群的最新消息
                 #     msgs = self.wx.GetLastMessage
@@ -75,9 +102,22 @@ class WeChatBot:
                                 elif message == "退出游戏":
                                     self.players.remove(sender)
                                     self.wx.SendMsg(f"{sender} 已退出游戏", self.current_group)
+                             # 处理准备大厅命令
+                            if message in ["准备", "取消准备"]:
+                                    self.manage_lobby(chatname, sender, message)
+
+                            # 处理准备状态命令
+                            if message == "准备状态":
+                                if chatname in self.lobby_queues:
+                                    count = len(self.lobby_queues[chatname])
+                                    players = "\n".join(self.lobby_queues[chatname])
+                                    self.wx.SendMsg(f"当前准备人数: {count}/{self.TeamMax}\n准备玩家:\n{players}", chatname)
+                                else:
+                                    self.wx.SendMsg("当前没有准备中的玩家", chatname)
                 except Exception as e:
                     print(f"游戏消息处理出错: {e}")
-                time.sleep(1)
+                    error_trace = traceback.format_exc()
+                    print(f"游戏消息处理出错: \n{error_trace}")
     
     def accept_friend_request(self, sender, message):
         """自动同意好友请求"""
@@ -104,20 +144,24 @@ class WeChatBot:
         except Exception as e:
             print(f"同意好友请求时出错: {e}")
     
-    def create_group(self, who):
+    def create_group(self, group, players=None):
         """创建随机群聊"""
+        print('创建群中：列表：')
+        print(players)
         try:
-            # 获取好友列表
-            self.wx.ChatWith(who="群游戏欢乐群", exact=False)
-            friends = self.wx.GetGroupMembers()  # 取前5个好友
-          #  nicknames = [item['昵称'] for item in friends]
-           # print(friends)
-            # print(nicknames)
-            if len(friends) <= 3:
-                random_selection = friends.copy()
-            else:
-                # 随机选择3个不重复的元素
-                random_selection = random.sample(friends, 2)
+             # 如果没有指定玩家，随机选择好友
+            if players is None:
+                # 获取好友列表
+                self.wx.ChatWith(who="群游戏欢乐群", exact=False)
+                friends = self.wx.GetGroupMembers()  # 取前5个好友
+            #  nicknames = [item['昵称'] for item in friends]
+            # print(friends)
+                # print(nicknames)
+                if len(friends) <= 3:
+                    players = friends.copy()
+                else:
+                    # 随机选择3个不重复的元素
+                    players = random.sample(friends, 2)
             # if len(friends) < 3:
             #     self.wx.SendMsg("好友数量不足，无法创建群聊", who)
             #     return
@@ -125,7 +169,7 @@ class WeChatBot:
             # 创建群聊
             group_name = f"欢乐谁是卧底群{random.randint(10000, 99999)}"
             self.current_group = group_name
-            self.wx.AddGroupMembers(group=self.official, members=random_selection)
+            self.wx.AddGroupMembers(group=self.official, members=players)
             self.wx.ChatWith(who=group_name, exact=False)
             self.wx.ManageGroup(name=group_name)
             # 发送群公告
@@ -133,7 +177,6 @@ class WeChatBot:
             # self.wx.ChatWith(group_name)
             self.wx.SendMsg("🎉 本群由机器人自动创建！")
             # self.wx.SendMsg("输入'谁是卧底'开始游戏，输入'帮助'查看其他功能")
-            
             # 将新群添加到监听列表
             # if group_name not in self.listen_list:
             #     self.listen_list.append(group_name)
@@ -143,7 +186,7 @@ class WeChatBot:
             
         except Exception as e:
             print(f"创建群聊时出错: {e}")
-            self.wx.SendMsg("创建群聊失败，请稍后再试", who=who)
+            self.wx.SendMsg("创建群聊失败，请稍后再试", who=group)
     
     def start_game(self, group_name):
         """开始谁是卧底游戏"""
@@ -152,7 +195,6 @@ class WeChatBot:
             return
         print(self.current_group)
         self.wx.ChatWith(self.current_group,exact=True)
-        time.sleep(2)
         self.game_active = True
         self.players = []
         self.votes = {}
@@ -395,15 +437,76 @@ class WeChatBot:
                     self.wx.SendMsg("❌ 请使用数字投票，例如：投票 1", who=voter)
         except Exception as e:
             print(f"处理投票时出错: {e}")
+    def manage_lobby(self, group, sender, command):
+        """管理准备大厅"""
+        # 确保大厅存在
+        if group not in self.lobby_queues:
+            self.lobby_queues[group] = []
+            self.lobby_status[group] = time.time()
+        
+        # 更新大厅活跃时间
+        self.lobby_status[group] = time.time()
+        
+        # 处理准备/取消准备命令
+        if command == "准备":
+            if sender not in self.lobby_queues[group]:
+                self.lobby_queues[group].append(sender)
+                self.wx.SendMsg(f"✅ {sender} 已准备！当前准备人数: {len(self.lobby_queues[group])}/{self.TeamMax}", who=group)
+            else:
+                self.wx.SendMsg(f"⚠️ {sender} 你已经准备过了！", who=group)
+        elif command == "取消准备":
+            if sender in self.lobby_queues[group]:
+                self.lobby_queues[group].remove(sender)
+                self.wx.SendMsg(f"❌ {sender} 已取消准备！当前准备人数: {len(self.lobby_queues[group])}/{self.TeamMax}", who=group)
+            else:
+                self.wx.SendMsg(f"⚠️ {sender} 你还没有准备！", who=group)
+        
+        # 显示准备列表
+        if self.lobby_queues[group]:
+            player_list = "\n".join([f"{i+1}. {player}" for i, player in enumerate(self.lobby_queues[group])])
+            self.wx.SendMsg(f"📋 准备列表：\n{player_list}", who=group)
+        else:
+            self.wx.SendMsg("准备大厅已清空", who=group)
+        
+        # 检查是否满员
+        if len(self.lobby_queues[group]) >= 4:
+            self.start_game_from_lobby(group)
     
+    def start_game_from_lobby(self, lobby_group):
+        """从准备大厅开始游戏"""
+        players = self.lobby_queues[lobby_group][:4]  # 取前8名玩家
+        
+        # 创建游戏群
+        game_group = self.create_group(lobby_group, players)
+        if not game_group:
+            self.wx.SendMsg("创建游戏群失败，请稍后再试", lobby_group)
+            return
+        
+        # 通知玩家
+        self.wx.SendMsg(f"🎉 准备完成！已创建游戏群: {game_group}", lobby_group)
+        self.wx.SendMsg(f"请进入游戏群: {game_group} 开始游戏", lobby_group)
+        
+        # 清空准备队列
+        self.lobby_queues[lobby_group] = self.lobby_queues[lobby_group][8:]
+        
+        # 如果还有剩余玩家
+        if self.lobby_queues[lobby_group]:
+            self.wx.SendMsg(f"剩余准备玩家: {len(self.lobby_queues[lobby_group])}/8", lobby_group)
+            player_list = "\n".join([f"{i+1}. {player}" for i, player in enumerate(self.lobby_queues[lobby_group])])
+            self.wx.SendMsg(f"📋 准备列表：\n{player_list}", lobby_group)
+        
+        # 在新群中开始游戏
+        time.sleep(5)  # 给玩家时间加入新群
+        self.start_game(game_group)
     def show_help(self, who):
         print(f"show_help: {who}")
         help_msg = """
 🤖 微信机器人帮助：
 1. 创建群聊 - 自动创建随机群聊
 2. 谁是卧底 - 在群内开始文字版游戏
-3. 退出游戏 - 在游戏进行中退出
-4. 帮助 - 显示此帮助信息
+3. 积分榜 - 查看当前积分排名
+4. 退出游戏 - 在游戏进行中退出
+5. 帮助 - 显示此帮助信息
 
 游戏规则：
 - 每人会收到一个词汇（卧底词汇与其他人不同）
@@ -427,13 +530,19 @@ class WeChatBot:
                 self.show_help(chatname)
             elif msg.content == "积分榜":
                 self.show_scoreboard(chatname)
+            elif msg.content == "停止":
+                self.wx.RemoveListenChat(self.official)
+                self.wx.RemoveListenChat(self.current_group)
+                exit
     def run(self):
         """运行主监听循环"""
         # 循环添加监听对象
         self.selfnickname =  self.wx.GetMyInfo()['nickname']
-        self.wx.AddListenChat(nickname="微游游戏官方",callback=self.on_msg)
+        self.wx.SendMsg("机器人开始运行",who=self.current_group)
+        self.wx.AddListenChat(nickname=self.official,callback=self.on_msg)
         self.wx.AddListenChat(nickname=self.current_group,callback=self.game_message_listener)
         self.wx.KeepRunning()
+
 
 if __name__ == "__main__":
     bot = WeChatBot()
