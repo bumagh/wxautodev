@@ -113,7 +113,7 @@ class WeChatBot:
                                 else:
                                     self.wx.SendMsg("当前没有准备中的玩家", chatname)
                             if message == "再来一局":
-                                self.start_game(self.sub_group)
+                                self.start_game(self.sub_group,self.players)
                 except Exception as e:
                     print(f"游戏消息处理出错: {e}")
                     error_trace = traceback.format_exc()
