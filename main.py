@@ -18,6 +18,7 @@ class WeChatBot:
         self.sub_group = ""
         self.original_players=[]
         self.players = []
+        self.sub_players = []
         self.word_pairs = []
         self.civilian_word=""
         self.undercover_word=""
@@ -113,7 +114,7 @@ class WeChatBot:
                                 else:
                                     self.wx.SendMsg("当前没有准备中的玩家", chatname)
                             if message == "再来一局":
-                                self.start_game(self.sub_group,self.players)
+                                self.start_game(self.sub_group,self.sub_players)
                 except Exception as e:
                     print(f"游戏消息处理出错: {e}")
                     error_trace = traceback.format_exc()
@@ -513,7 +514,7 @@ class WeChatBot:
     def start_game_from_lobby(self, lobby_group):
         """从准备大厅开始游戏"""
         players = self.lobby_queues[lobby_group][:4]  # 取前8名玩家
-        
+        self.sub_players = players
         # 创建游戏群
         self.create_group(lobby_group, players)
         game_group=self.sub_group
