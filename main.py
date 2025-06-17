@@ -220,7 +220,7 @@ class WeChatBot:
             print(f"创建群聊时出错: {e}")
             # self.wx.SendMsg("创建群聊失败，请稍后再试", who=group)
     
-    def start_game(self, group_name):
+    def start_game(self, group_name,players=None):
         """开始谁是卧底游戏"""
         if self.game_active:
             self.wx.SendMsg("游戏正在进行中，请稍后再试", who=group_name)
@@ -233,16 +233,18 @@ class WeChatBot:
         
         # 获取群成员
         try:
-            sessions = self.wx.GetSession()
-            for session in sessions:
-                if session.info['name']==group_name:
-                    session.double_click()
-                    self.current_group_session=session
-                    break
-            chat = self.wx.GetSubWindow(nickname=group_name)
-            self.current_group_chat = chat
-            members = chat.GetGroupMembers()
-            self.players = [m for m in members if m != self.selfnickname]
+            if players is None:
+                sessions = self.wx.GetSession()
+                for session in sessions:
+                    if session.info['name']==group_name:
+                        session.double_click()
+                        self.current_group_session=session
+                        break
+                chat = self.wx.GetSubWindow(nickname=group_name)
+                self.current_group_chat = chat
+                members = chat.GetGroupMembers()
+                self.players = [m for m in members if m != self.selfnickname]
+            self.players=players
             #
             # self.players = members
             
@@ -533,8 +535,8 @@ class WeChatBot:
             self.wx.SendMsg(f"📋 准备列表：\n{player_list}", lobby_group)
         
         # 在新群中开始游戏
-        time.sleep(5)  # 给玩家时间加入新群
-        self.start_game(game_group)
+        time.sleep(10)  # 给玩家时间加入新群
+        self.start_game(game_group,players)
     def show_help(self, who):
         print(f"show_help: {who}")
         help_msg = """
