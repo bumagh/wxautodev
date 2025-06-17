@@ -244,7 +244,8 @@ class WeChatBot:
                 self.current_group_chat = chat
                 members = chat.GetGroupMembers()
                 self.players = [m for m in members if m != self.selfnickname]
-            self.players=players
+            else:
+                self.players=players
             #
             # self.players = members
             
