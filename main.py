@@ -306,11 +306,12 @@ class WeChatBot:
 
                 player_list = list(enumerate(self.players, start=1))
                 player_info = "\n".join([f"{num}. {player}" for num, player in player_list])
-                self.wx.SendMsg(f"当前玩家列表：\n{player_info}",who=self.sub_group)
+                # self.wx.SendMsg(f"当前玩家列表：\n{player_info}",who=self.sub_group)
                 # 玩家轮流描述
                 # for player in self.players[:]:
                 #     self.wx.SendMsg(f"请 {player} 描述你的词汇（15秒）",who=self.current_group)
                 #     time.sleep(15)
+                self.wx.SendMsg("描述开始，请大家同时发言（25秒）",who=self.sub_group)
                 time.sleep(25)
             
                 # 投票环节
